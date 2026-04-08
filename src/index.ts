@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -358,7 +358,7 @@ const HANDLER_MAP: Record<string, (models: Model[], args: Record<string, unknown
   find_models_by_context_length: handleFindModelsByContextLength,
 };
 
-function createServer(): Server {
+export function createServer(): Server {
   const server = new Server(
     { name: "openrouter-pricing-mcp", version: "1.0.0" },
     { capabilities: { tools: {} } }
@@ -379,23 +379,4 @@ function createServer(): Server {
   });
 
   return server;
-}
-
-async function main() {
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("OpenRouter MCP Server running on stdio");
-}
-
-// Only start the server when this file is executed directly (not imported by tests)
-const isDirectRun =
-  process.argv[1] &&
-  import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"));
-
-if (isDirectRun) {
-  main().catch((error) => {
-    console.error("Fatal error in main():", error);
-    process.exit(1);
-  });
 }

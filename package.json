@@ -5,7 +5,7 @@
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "openrouter-pricing-mcp": "build/index.js"
+    "openrouter-pricing-mcp": "build/cli.js"
   },
   "files": [
     "build",
