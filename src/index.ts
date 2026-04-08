@@ -16,11 +16,23 @@ export interface Pricing {
 export interface Model {
   id: string;
   name: string;
+  description?: string;
   pricing: Pricing;
   context_length: number;
   architecture?: {
     modality?: string;
+    input_modalities?: string[];
+    output_modalities?: string[];
+    tokenizer?: string;
+    instruct_type?: string | null;
   };
+  top_provider?: {
+    context_length?: number;
+    max_completion_tokens?: number | null;
+    is_moderated?: boolean;
+  };
+  supported_parameters?: string[];
+  knowledge_cutoff?: string | null;
 }
 
 // ─── Cache ───────────────────────────────────────────────────────────────────
@@ -99,6 +111,118 @@ export function formatCostUnit(costStr: string): string {
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
 
+export function handleGetModelCapabilities(models: Model[], args: Record<string, unknown>) {
+  const modelId = String(args.model_id ?? "");
+  const model = models.find((m) => m.id === modelId);
+
+  if (!model) {
+    const fuzzy = models.filter((m) =>
+      m.id.toLowerCase().includes(modelId.toLowerCase())
+    );
+    if (fuzzy.length > 0) {
+      const suggestions = fuzzy.slice(0, 5).map((m) => m.id).join("\n  ");
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Model "${modelId}" not found. Did you mean one of these?\n  ${suggestions}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+    return {
+      content: [{ type: "text" as const, text: `Model "${modelId}" not found.` }],
+      isError: true,
+    };
+  }
+
+  const inputModalities = model.architecture?.input_modalities ?? [];
+  const outputModalities = model.architecture?.output_modalities ?? [];
+  const supportedParams = model.supported_parameters ?? [];
+  const maxCompletionTokens = model.top_provider?.max_completion_tokens;
+  const isModerated = model.top_provider?.is_moderated;
+  const tokenizer = model.architecture?.tokenizer;
+  const knowledgeCutoff = model.knowledge_cutoff;
+
+  // Derive capability flags from supported_parameters
+  const hasToolUse = supportedParams.includes("tools") || supportedParams.includes("tool_choice");
+  const hasReasoning = supportedParams.includes("reasoning") || supportedParams.includes("include_reasoning");
+  const hasStructuredOutput = supportedParams.includes("structured_outputs") || supportedParams.includes("response_format");
+  const hasVision = inputModalities.includes("image");
+  const hasAudioInput = inputModalities.includes("audio");
+  const hasAudioOutput = outputModalities.includes("audio");
+  const hasImageOutput = outputModalities.includes("image");
+
+  const lines: string[] = [
+    `Model: ${model.name} (${model.id})`,
+  ];
+
+  if (model.description) {
+    lines.push(``, `── Description ──`, model.description);
+  }
+
+  lines.push(
+    ``,
+    `── Pricing ──`,
+    `Prompt: ${formatCostPer1M(model.pricing.prompt)} / 1M tokens`,
+    `Completion: ${formatCostPer1M(model.pricing.completion)} / 1M tokens`,
+    model.pricing.image ? `Image: ${formatCostUnit(model.pricing.image)} / image` : "",
+    model.pricing.request ? `Request: ${formatCostUnit(model.pricing.request)} / request` : "",
+    ``,
+    `── Context & Limits ──`,
+    `Context Length: ${model.context_length?.toLocaleString() ?? "N/A"} tokens`,
+  );
+
+  if (maxCompletionTokens != null) {
+    lines.push(`Max Completion Tokens: ${maxCompletionTokens.toLocaleString()}`);
+  }
+
+  lines.push(
+    ``,
+    `── Modalities ──`,
+    `Input: ${inputModalities.length > 0 ? inputModalities.join(", ") : "text"}`,
+    `Output: ${outputModalities.length > 0 ? outputModalities.join(", ") : "text"}`,
+    ``,
+    `── Capabilities ──`,
+    `🔧 Tool Use (Function Calling): ${hasToolUse ? "✅ Yes" : "❌ No"}`,
+    `🧠 Reasoning / Thinking: ${hasReasoning ? "✅ Yes" : "❌ No"}`,
+    `📋 Structured Output (JSON): ${hasStructuredOutput ? "✅ Yes" : "❌ No"}`,
+    `👁️ Vision (Image Input): ${hasVision ? "✅ Yes" : "❌ No"}`,
+    `🎤 Audio Input: ${hasAudioInput ? "✅ Yes" : "❌ No"}`,
+    `🔊 Audio Output: ${hasAudioOutput ? "✅ Yes" : "❌ No"}`,
+    `🎨 Image Generation: ${hasImageOutput ? "✅ Yes" : "❌ No"}`,
+  );
+
+  if (tokenizer) {
+    lines.push(``, `── Technical Details ──`);
+    lines.push(`Tokenizer: ${tokenizer}`);
+  }
+  if (isModerated != null) {
+    if (!tokenizer) lines.push(``, `── Technical Details ──`);
+    lines.push(`Content Moderated: ${isModerated ? "Yes" : "No"}`);
+  }
+  if (knowledgeCutoff) {
+    lines.push(`Knowledge Cutoff: ${knowledgeCutoff}`);
+  }
+
+  if (supportedParams.length > 0) {
+    lines.push(``, `── Supported Parameters ──`, supportedParams.join(", "));
+  }
+
+  // Filter out empty strings from conditional pushes
+  const filteredLines = lines.filter((l, i) => !(l === "" && i > 0 && lines[i - 1] === ""));
+
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: filteredLines.join("\n"),
+      },
+    ],
+  };
+}
+
 export function handleGetModelPricing(models: Model[], args: Record<string, unknown>) {
   const modelId = String(args.model_id ?? "");
   const model = models.find((m) => m.id === modelId);
@@ -125,18 +249,32 @@ export function handleGetModelPricing(models: Model[], args: Record<string, unkn
     };
   }
 
+  const pricingLines = [
+    `Model: ${model.name} (${model.id})`,
+  ];
+
+  if (model.description) {
+    pricingLines.push(``, model.description);
+  }
+
+  pricingLines.push(
+    ``,
+    `Context Length: ${model.context_length?.toLocaleString() ?? "N/A"} tokens`,
+    `Prompt Cost: ${formatCostPer1M(model.pricing.prompt)} / 1M tokens`,
+    `Completion Cost: ${formatCostPer1M(model.pricing.completion)} / 1M tokens`,
+    `Image Cost: ${formatCostUnit(model.pricing.image ?? "0")} / image`,
+    `Request Cost: ${formatCostUnit(model.pricing.request ?? "0")} / request`,
+  );
+
+  if (model.top_provider?.max_completion_tokens) {
+    pricingLines.push(`Max Completion Tokens: ${model.top_provider.max_completion_tokens.toLocaleString()}`);
+  }
+
   return {
     content: [
       {
         type: "text" as const,
-        text: [
-          `Model: ${model.name} (${model.id})`,
-          `Context Length: ${model.context_length?.toLocaleString() ?? "N/A"} tokens`,
-          `Prompt Cost: ${formatCostPer1M(model.pricing.prompt)} / 1M tokens`,
-          `Completion Cost: ${formatCostPer1M(model.pricing.completion)} / 1M tokens`,
-          `Image Cost: ${formatCostUnit(model.pricing.image)} / image`,
-          `Request Cost: ${formatCostUnit(model.pricing.request)} / request`,
-        ].join("\n"),
+        text: pricingLines.join("\n"),
       },
     ],
   };
@@ -188,12 +326,24 @@ export function handleCompareModelCosts(models: Model[], args: Record<string, un
     };
   }
 
-  const header = `| Model | Prompt Cost / 1M | Completion Cost / 1M | Context Length |`;
-  const separator = `|-------|----------------|--------------------|----------------|`;
-  const rows = found.map(
-    (m) =>
-      `| ${m.id} | ${formatCostPer1M(m.pricing.prompt)} | ${formatCostPer1M(m.pricing.completion)} | ${m.context_length?.toLocaleString() ?? "N/A"} |`
-  );
+  // Helper to derive capability flags
+  function getCapFlags(m: Model) {
+    const params = m.supported_parameters ?? [];
+    const inp = m.architecture?.input_modalities ?? [];
+    return {
+      tools: params.includes("tools") || params.includes("tool_choice") ? "✅" : "❌",
+      reasoning: params.includes("reasoning") || params.includes("include_reasoning") ? "✅" : "❌",
+      vision: inp.includes("image") ? "✅" : "❌",
+      json: params.includes("structured_outputs") || params.includes("response_format") ? "✅" : "❌",
+    };
+  }
+
+  const header = `| Model | Prompt/1M | Completion/1M | Context | Tools | Reasoning | Vision | JSON |`;
+  const separator = `|-------|----------|--------------|---------|-------|-----------|--------|------|`;
+  const rows = found.map((m) => {
+    const caps = getCapFlags(m);
+    return `| ${m.id} | ${formatCostPer1M(m.pricing.prompt)} | ${formatCostPer1M(m.pricing.completion)} | ${m.context_length?.toLocaleString() ?? "N/A"} | ${caps.tools} | ${caps.reasoning} | ${caps.vision} | ${caps.json} |`;
+  });
 
   let text = `${header}\n${separator}\n${rows.join("\n")}`;
   if (notFound.length > 0) {
@@ -274,7 +424,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_model_pricing",
     description:
-      "Get pricing details for a specific OpenRouter model by its full ID (e.g. google/gemini-2.5-pro-preview). Includes prompt, completion, image, and request costs formatted per 1M tokens.",
+      "Get pricing details and description for a specific OpenRouter model by its full ID (e.g. google/gemini-2.5-pro-preview). Includes prompt, completion, image, and request costs formatted per 1M tokens, plus model description and max output length.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -304,7 +454,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "compare_model_costs",
     description:
-      "Compare costs between multiple OpenRouter models side-by-side in a table format.",
+      "Compare costs and capabilities between multiple OpenRouter models side-by-side in a table format. Shows pricing, context length, and key capability flags (tools, reasoning, vision, JSON output).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -356,6 +506,21 @@ export const TOOL_DEFINITIONS = [
       required: ["min_context_length"],
     },
   },
+  {
+    name: "get_model_capabilities",
+    description:
+      "Get a comprehensive model card for a specific OpenRouter model. Includes description, pricing, context limits, input/output modalities, capability flags (tool use, reasoning, vision, structured output, audio), technical details, and all supported parameters.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        model_id: {
+          type: "string",
+          description: "The full ID of the model (e.g. openai/gpt-4o, anthropic/claude-sonnet-4)",
+        },
+      },
+      required: ["model_id"],
+    },
+  },
 ];
 
 // ─── Server Setup ────────────────────────────────────────────────────────────
@@ -366,11 +531,12 @@ const HANDLER_MAP: Record<string, (models: Model[], args: Record<string, unknown
   compare_model_costs: handleCompareModelCosts,
   get_cheapest_models: handleGetCheapestModels,
   find_models_by_context_length: handleFindModelsByContextLength,
+  get_model_capabilities: handleGetModelCapabilities,
 };
 
 export function createServer(): Server {
   const server = new Server(
-    { name: "openrouter-pricing-mcp", version: "1.0.0" },
+    { name: "openrouter-pricing-mcp", version: "1.2.0" },
     { capabilities: { tools: {} } }
   );
 

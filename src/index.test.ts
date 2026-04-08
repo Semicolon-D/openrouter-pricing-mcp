@@ -8,6 +8,7 @@ import {
   handleCompareModelCosts,
   handleGetCheapestModels,
   handleFindModelsByContextLength,
+  handleGetModelCapabilities,
   TOOL_DEFINITIONS,
   type Model,
 } from "./index.js";
@@ -18,14 +19,40 @@ const MOCK_MODELS: Model[] = [
   {
     id: "openai/gpt-4o",
     name: "GPT-4o",
+    description: "GPT-4o is OpenAI's versatile flagship model with vision capabilities and strong reasoning.",
     pricing: { prompt: "0.0000025", completion: "0.00001", request: "0", image: "0.003613" },
     context_length: 128000,
+    architecture: {
+      modality: "text+image->text",
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      tokenizer: "GPT",
+    },
+    top_provider: {
+      context_length: 128000,
+      max_completion_tokens: 16384,
+      is_moderated: true,
+    },
+    supported_parameters: ["max_tokens", "temperature", "tools", "tool_choice", "response_format", "structured_outputs"],
   },
   {
     id: "anthropic/claude-sonnet-4",
     name: "Claude Sonnet 4",
+    description: "Claude Sonnet 4 excels in coding and reasoning with improved precision and controllability.",
     pricing: { prompt: "0.000003", completion: "0.000015", request: "0", image: "0.0048" },
     context_length: 200000,
+    architecture: {
+      modality: "text+image->text",
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      tokenizer: "Claude",
+    },
+    top_provider: {
+      context_length: 200000,
+      max_completion_tokens: 128000,
+      is_moderated: true,
+    },
+    supported_parameters: ["include_reasoning", "max_tokens", "reasoning", "response_format", "tools", "tool_choice", "structured_outputs"],
   },
   {
     id: "google/gemini-2.5-pro-preview",
@@ -86,6 +113,8 @@ describe("handleGetModelPricing", () => {
     assert.ok(text.includes("openai/gpt-4o"));
     assert.ok(text.includes("128,000"));
     assert.ok(text.includes("$2.50 / 1M")); // Checking the 1M formatting
+    assert.ok(text.includes("versatile flagship")); // description included
+    assert.ok(text.includes("16,384")); // max completion tokens
   });
 
   it("returns fuzzy suggestions for a partial match", () => {
@@ -141,6 +170,12 @@ describe("handleCompareModelCosts", () => {
     assert.ok(text.includes("openai/gpt-4o"));
     assert.ok(text.includes("anthropic/claude-sonnet-4"));
     assert.ok(text.includes("|")); // table format
+    // Should include capability columns
+    assert.ok(text.includes("Tools"));
+    assert.ok(text.includes("Reasoning"));
+    assert.ok(text.includes("Vision"));
+    assert.ok(text.includes("JSON"));
+    assert.ok(text.includes("✅")); // Both have tools
   });
 
   it("reports not-found models alongside found ones", () => {
@@ -214,11 +249,76 @@ describe("handleFindModelsByContextLength", () => {
   });
 });
 
+// ─── get_model_capabilities ─────────────────────────────────────────────────
+
+describe("handleGetModelCapabilities", () => {
+  it("returns capabilities for a known model with full metadata", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "openai/gpt-4o" });
+    assert.equal(result.isError, undefined);
+    const text = result.content[0].text;
+    assert.ok(text.includes("GPT-4o"));
+    // Description section
+    assert.ok(text.includes("Description"));
+    assert.ok(text.includes("versatile flagship"));
+    // Pricing section
+    assert.ok(text.includes("Pricing"));
+    assert.ok(text.includes("$2.50 / 1M tokens"));
+    // Capabilities
+    assert.ok(text.includes("Tool Use"));
+    assert.ok(text.includes("✅ Yes")); // tool use should be yes
+    assert.ok(text.includes("Vision"));
+    assert.ok(text.includes("✅ Yes")); // vision should be yes (image input)
+    assert.ok(text.includes("Reasoning"));
+    assert.ok(text.includes("❌ No")); // GPT-4o doesn't have reasoning
+    assert.ok(text.includes("Tokenizer: GPT"));
+    assert.ok(text.includes("16,384")); // max completion tokens
+    assert.ok(text.includes("Content Moderated: Yes"));
+  });
+
+  it("returns capabilities for Claude with reasoning support", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "anthropic/claude-sonnet-4" });
+    const text = result.content[0].text;
+    assert.ok(text.includes("Reasoning"));
+    assert.ok(text.includes("✅ Yes")); // Claude has reasoning
+    assert.ok(text.includes("Tokenizer: Claude"));
+    assert.ok(text.includes("128,000")); // max completion tokens
+  });
+
+  it("handles models with minimal metadata gracefully", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "meta-llama/llama-3-8b-instruct:free" });
+    assert.equal(result.isError, undefined);
+    const text = result.content[0].text;
+    assert.ok(text.includes("Llama 3 8B"));
+    // Should show all capabilities as No since no supported_parameters
+    assert.ok(text.includes("❌ No"));
+  });
+
+  it("returns fuzzy suggestions for partial match", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "gpt-4" });
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("Did you mean"));
+  });
+
+  it("returns error for unknown model", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "nonexistent/xyz" });
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("not found"));
+  });
+
+  it("shows supported parameters list", () => {
+    const result = handleGetModelCapabilities(MOCK_MODELS, { model_id: "openai/gpt-4o" });
+    const text = result.content[0].text;
+    assert.ok(text.includes("Supported Parameters"));
+    assert.ok(text.includes("max_tokens"));
+    assert.ok(text.includes("tools"));
+  });
+});
+
 // ─── TOOL_DEFINITIONS ───────────────────────────────────────────────────────
 
 describe("TOOL_DEFINITIONS", () => {
-  it("exports exactly 5 tools", () => {
-    assert.equal(TOOL_DEFINITIONS.length, 5);
+  it("exports exactly 6 tools", () => {
+    assert.equal(TOOL_DEFINITIONS.length, 6);
   });
 
   it("all tools have a name, description, and inputSchema", () => {
@@ -237,6 +337,7 @@ describe("TOOL_DEFINITIONS", () => {
       "compare_model_costs",
       "get_cheapest_models",
       "find_models_by_context_length",
+      "get_model_capabilities",
     ];
     const actualNames = TOOL_DEFINITIONS.map((t) => t.name);
     assert.deepEqual(actualNames, knownNames);
