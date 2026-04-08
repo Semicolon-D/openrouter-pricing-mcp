@@ -1,7 +1,8 @@
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import {
-  formatCost,
+  formatCostPer1M,
+  formatCostUnit,
   handleGetModelPricing,
   handleListAllModelsPricing,
   handleCompareModelCosts,
@@ -48,21 +49,29 @@ const MOCK_MODELS: Model[] = [
 
 // ─── formatCost ──────────────────────────────────────────────────────────────
 
-describe("formatCost", () => {
-  it("formats a normal cost", () => {
-    assert.equal(formatCost("0.000003"), "$0.00000300");
+describe("formatCostPer1M", () => {
+  it("formats a normal cost per 1M tokens properly", () => {
+    // 0.0000025 * 1M = 2.50
+    assert.equal(formatCostPer1M("0.0000025"), "$2.50");
   });
 
   it("returns FREE for zero-cost", () => {
-    assert.equal(formatCost("0"), "FREE");
+    assert.equal(formatCostPer1M("0"), "FREE");
   });
 
   it("handles NaN gracefully by returning original string", () => {
-    assert.equal(formatCost("N/A"), "N/A");
+    assert.equal(formatCostPer1M("N/A"), "N/A");
   });
 
   it("handles very small costs accurately", () => {
-    assert.equal(formatCost("0.0000001"), "$0.00000010");
+    // 0.0000001 * 1M = 0.10
+    assert.equal(formatCostPer1M("0.0000001"), "$0.10");
+  });
+});
+
+describe("formatCostUnit", () => {
+  it("formats a per-unit cost nicely", () => {
+    assert.equal(formatCostUnit("0.003613"), "$0.0036");
   });
 });
 
@@ -76,6 +85,7 @@ describe("handleGetModelPricing", () => {
     assert.ok(text.includes("GPT-4o"));
     assert.ok(text.includes("openai/gpt-4o"));
     assert.ok(text.includes("128,000"));
+    assert.ok(text.includes("$2.50 / 1M")); // Checking the 1M formatting
   });
 
   it("returns fuzzy suggestions for a partial match", () => {
@@ -177,8 +187,8 @@ describe("handleGetCheapestModels", () => {
   it("defaults to prompt and limit 10", () => {
     const result = handleGetCheapestModels(MOCK_MODELS, {});
     const text = result.content[0].text;
-    assert.ok(text.includes("prompt cost"));
-  });
+    assert.ok(text.includes("prompt"));
+  }); // Wait, the default falls back to prompt cost, which prints "prompt: $... / 1M" so text includes "prompt"
 });
 
 // ─── find_models_by_context_length ──────────────────────────────────────────

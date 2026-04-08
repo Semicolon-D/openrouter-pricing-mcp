@@ -1,6 +1,4 @@
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -61,7 +59,6 @@ async function fetchModelsFromAPI(): Promise<Model[]> {
     "Content-Type": "application/json",
   };
 
-  // Use API key if provided (optional — the models endpoint is public)
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (apiKey) {
     headers["Authorization"] = `Bearer ${apiKey}`;
@@ -79,11 +76,25 @@ async function fetchModelsFromAPI(): Promise<Model[]> {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function formatCost(costStr: string): string {
+const currencyFormat = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+export function formatCostPer1M(costStr: string): string {
   const cost = parseFloat(costStr);
   if (isNaN(cost)) return costStr;
   if (cost === 0) return "FREE";
-  return `$${cost.toFixed(8)}`;
+  return currencyFormat.format(cost * 1_000_000);
+}
+
+export function formatCostUnit(costStr: string): string {
+  const cost = parseFloat(costStr);
+  if (isNaN(cost)) return costStr;
+  if (cost === 0) return "FREE";
+  return currencyFormat.format(cost);
 }
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
@@ -93,7 +104,6 @@ export function handleGetModelPricing(models: Model[], args: Record<string, unkn
   const model = models.find((m) => m.id === modelId);
 
   if (!model) {
-    // Attempt fuzzy match
     const fuzzy = models.filter((m) =>
       m.id.toLowerCase().includes(modelId.toLowerCase())
     );
@@ -122,10 +132,10 @@ export function handleGetModelPricing(models: Model[], args: Record<string, unkn
         text: [
           `Model: ${model.name} (${model.id})`,
           `Context Length: ${model.context_length?.toLocaleString() ?? "N/A"} tokens`,
-          `Prompt Cost: ${formatCost(model.pricing.prompt)} / token`,
-          `Completion Cost: ${formatCost(model.pricing.completion)} / token`,
-          `Image Cost: ${formatCost(model.pricing.image)} / token`,
-          `Request Cost: ${formatCost(model.pricing.request)}`,
+          `Prompt Cost: ${formatCostPer1M(model.pricing.prompt)} / 1M tokens`,
+          `Completion Cost: ${formatCostPer1M(model.pricing.completion)} / 1M tokens`,
+          `Image Cost: ${formatCostUnit(model.pricing.image)} / image`,
+          `Request Cost: ${formatCostUnit(model.pricing.request)} / request`,
         ].join("\n"),
       },
     ],
@@ -139,7 +149,7 @@ export function handleListAllModelsPricing(models: Model[], args: Record<string,
   const formatted = results
     .map(
       (m, i) =>
-        `${i + 1}. ${m.id} — Prompt: ${formatCost(m.pricing.prompt)}, Completion: ${formatCost(m.pricing.completion)}`
+        `${i + 1}. ${m.id} — Prompt: ${formatCostPer1M(m.pricing.prompt)}/1M, Completion: ${formatCostPer1M(m.pricing.completion)}/1M`
     )
     .join("\n");
 
@@ -178,11 +188,11 @@ export function handleCompareModelCosts(models: Model[], args: Record<string, un
     };
   }
 
-  const header = `| Model | Prompt Cost | Completion Cost | Context Length |`;
-  const separator = `|-------|------------|----------------|----------------|`;
+  const header = `| Model | Prompt Cost / 1M | Completion Cost / 1M | Context Length |`;
+  const separator = `|-------|----------------|--------------------|----------------|`;
   const rows = found.map(
     (m) =>
-      `| ${m.id} | ${formatCost(m.pricing.prompt)} | ${formatCost(m.pricing.completion)} | ${m.context_length?.toLocaleString() ?? "N/A"} |`
+      `| ${m.id} | ${formatCostPer1M(m.pricing.prompt)} | ${formatCostPer1M(m.pricing.completion)} | ${m.context_length?.toLocaleString() ?? "N/A"} |`
   );
 
   let text = `${header}\n${separator}\n${rows.join("\n")}`;
@@ -210,7 +220,7 @@ export function handleGetCheapestModels(models: Model[], args: Record<string, un
   const formatted = results
     .map(
       (m, i) =>
-        `${i + 1}. ${m.id} — ${metric}: ${formatCost(m.pricing[metric])}${parseFloat(m.pricing[metric]) === 0 ? " 🆓" : ""}`
+        `${i + 1}. ${m.id} — ${metric}: ${formatCostPer1M(m.pricing[metric])}/1M${parseFloat(m.pricing[metric]) === 0 ? " 🆓" : ""}`
     )
     .join("\n");
 
@@ -218,7 +228,7 @@ export function handleGetCheapestModels(models: Model[], args: Record<string, un
     content: [
       {
         type: "text" as const,
-        text: `Top ${results.length} cheapest models by ${metric} cost:\n\n${formatted}`,
+        text: `Top ${results.length} cheapest models by ${metric} cost (per 1M tokens):\n\n${formatted}`,
       },
     ],
   };
@@ -244,7 +254,7 @@ export function handleFindModelsByContextLength(models: Model[], args: Record<st
   const formatted = results
     .map(
       (m, i) =>
-        `${i + 1}. ${m.id} — Context: ${m.context_length.toLocaleString()} tokens, Prompt: ${formatCost(m.pricing.prompt)}`
+        `${i + 1}. ${m.id} — Context: ${m.context_length.toLocaleString()} tokens, Prompt: ${formatCostPer1M(m.pricing.prompt)}/1M`
     )
     .join("\n");
 
@@ -264,7 +274,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_model_pricing",
     description:
-      "Get pricing details for a specific OpenRouter model by its full ID (e.g. google/gemini-2.5-pro-preview). Includes prompt, completion, image, and request costs.",
+      "Get pricing details for a specific OpenRouter model by its full ID (e.g. google/gemini-2.5-pro-preview). Includes prompt, completion, image, and request costs formatted per 1M tokens.",
     inputSchema: {
       type: "object" as const,
       properties: {
