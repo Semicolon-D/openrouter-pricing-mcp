@@ -1,5 +1,9 @@
 # OpenRouter Pricing MCP Server for Antigravity & AI Assistants
 
+> ⚠️ **UPGRADE NOTICE:** We have released a massive upgrade! This single-provider MCP has been superseded by the new **[AI Model Advisor MCP](https://github.com/Semicolon-D/model-advisor-mcp)** (`ai-model-advisor-mcp`). 
+> 
+> The new server includes OpenRouter, plus **fal.ai, Together AI, Replicate, and Fireworks AI** all in one zero-config server. It is highly recommended to install `npx -y ai-model-advisor-mcp` instead of this package.
+
 [![npm version](https://img.shields.io/npm/v/openrouter-pricing-mcp.svg)](https://www.npmjs.com/package/openrouter-pricing-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
