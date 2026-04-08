@@ -1,0 +1,50 @@
+{
+  "name": "openrouter-mcp-server",
+  "version": "1.0.0",
+  "description": "An MCP server providing live model pricing data from OpenRouter. Query, compare, and discover the cheapest AI models.",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "openrouter-mcp-server": "build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test build/index.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "openrouter",
+    "ai",
+    "pricing",
+    "llm",
+    "claude",
+    "gpt",
+    "gemini",
+    "antigravity"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Semicolon-D/openrouter-mcp-server.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
